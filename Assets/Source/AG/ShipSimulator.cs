@@ -49,6 +49,10 @@ public class ShipSimulator : MonoBehaviour {
 
     public bool bLookingBehind;
 
+    private bool turnGainAntiBanding;
+    private bool airbrakeGainAntiBanding;
+    private bool bankingGainAntiBanding;
+
     // Vectors
     private Vector3 shipGravityForce;
     private Vector3 speedPadDirection;
@@ -164,6 +168,16 @@ public class ShipSimulator : MonoBehaviour {
         // Increase the rideheight slightly (keeps the ship at the actual wanted height)
         float rideHeight = GlobalSettings.shipRideHeight * 1.2f;
 
+        // Pitching
+        if (controller.inputPitch != 0)
+        {
+            shipPitchAmount = Mathf.Lerp(shipPitchAmount, controller.inputPitch * GlobalSettings.shipPitchGroundAmount, Time.deltaTime * GlobalSettings.shipPitchDamping);
+        } else
+        {
+            shipPitchAmount = Mathf.Lerp(shipPitchAmount, 0.0f, Time.deltaTime * GlobalSettings.shipPitchDamping);
+        }
+        shipBody.AddTorque(transform.right * (shipPitchAmount * 10));
+
         // Get the current class and set the gravity multipliers
         float gravityMul = 0;
         float trackGrav = 0;
@@ -225,10 +239,10 @@ public class ShipSimulator : MonoBehaviour {
         // Get a slightly smaller area of the ship size
         Vector2 hoverArea = new Vector2(settings.physColliderSize.x / 2, settings.physColliderSize.z / 2.05f);
         // Add hover points
-        hoverPoints.Add(transform.TransformPoint(-hoverArea.x, 0.0f, hoverArea.y)); // Front Left
-        hoverPoints.Add(transform.TransformPoint(hoverArea.x, 0.0f, hoverArea.y)); // Front Right
-        hoverPoints.Add(transform.TransformPoint(hoverArea.x, 0.0f, -hoverArea.y)); // Back Right
-        hoverPoints.Add(transform.TransformPoint(-hoverArea.x, 0.0f, -hoverArea.y)); // Back Left
+        hoverPoints.Add(transform.TransformPoint(-hoverArea.x, Mathf.Clamp(shipPitchAmount, 0.0f, 0.5f), hoverArea.y)); // Front Left
+        hoverPoints.Add(transform.TransformPoint(hoverArea.x, Mathf.Clamp(shipPitchAmount, 0.0f, 0.5f), hoverArea.y)); // Front Right
+        hoverPoints.Add(transform.TransformPoint(hoverArea.x, Mathf.Clamp(-shipPitchAmount, 0.0f, 0.7f), -hoverArea.y)); // Back Right
+        hoverPoints.Add(transform.TransformPoint(-hoverArea.x, Mathf.Clamp(-shipPitchAmount, 0.0f, 0.7f), -hoverArea.y)); // Back Left
 
         // Run through each hover point and apply hover forces if needed
         for (int i = 0; i < hoverPoints.Count; i++)
@@ -268,13 +282,13 @@ public class ShipSimulator : MonoBehaviour {
 
                 /* Calculate damping amount to bring the ship to rest quicker */
                 // Set a damping multiplier
-                float dampMult = 5.5f;
+                float dampMult = 6.5f;
                 // Calculate a ratio to multiply the compression ratio by
                 float dampRatio = ((dist / 2) / (rideHeight / 2) - 1) * -dampMult;
                 // Clamp the ratio
                 dampRatio = Mathf.Clamp(dampRatio, 1.0f, 5.5f);
                 // Clamp the compression ratio, min being the base damp amount
-                float clampedCR = Mathf.Clamp(compressionRatio, 0.6f, 1.0f);
+                float clampedCR = Mathf.Clamp(compressionRatio, 0.5f, 1.0f);
 
                 // Get the landing rebound to dampen forces straight after a long fall (stops the ship rebounding high off the track)
                 float reboundDamper = Mathf.Clamp(shipReboundLand * 15, 1.0f, Mathf.Infinity);
@@ -488,6 +502,20 @@ public class ShipSimulator : MonoBehaviour {
     /// </summary>
     public void Handling()
     {
+        // Anti-gain banding
+        if ((controller.inputSteer > 0 && shipTurningAmount < 0) || (controller.inputSteer < 0 && shipTurningAmount > 0))
+        {
+            if (!turnGainAntiBanding)
+            {
+                turnGainAntiBanding = true;
+                shipBankingVelocity = 0;
+                shipTurningGain = 0;
+            }
+        } else
+        {
+            turnGainAntiBanding = false;
+        }
+
         // Turning
         if (controller.inputSteer != 0)
         {
@@ -516,17 +544,7 @@ public class ShipSimulator : MonoBehaviour {
             // Set gain to zzero to create a gradual increase every time we start turning
             shipTurningGain = 0;
             
-            // If the previous turning is over a certain threshold then increase how fast the turning amount decreases to 'spring'
-            // the ship's rotation back to zero
-            if (Mathf.Abs(shipTurningAmount) > shipTurningPrevious * 0.6f)
-            {
-                // Over the threshold
-                shipTurningAmount = Mathf.Lerp(shipTurningAmount, 0.0f, Time.deltaTime * (shipTurningFalloff * 1.2f));
-            } else
-            {
-                // Under the treshold
-                shipTurningAmount = Mathf.Lerp(shipTurningAmount, 0.0f, Time.deltaTime * shipTurningFalloff);
-            }
+            shipTurningAmount = Mathf.Lerp(shipTurningAmount, 0.0f, Time.deltaTime * shipTurningFalloff);
 
             // Increase banking fallof
             shipBankingFalloff = Mathf.Lerp(shipBankingFalloff, settings.tiltShipSpeed, Time.deltaTime * settings.tiltShipAmount);
@@ -576,7 +594,7 @@ public class ShipSimulator : MonoBehaviour {
             } else
             {
                 // Under the threshold
-                shipAirbrakeAmount = Mathf.Lerp(shipAirbrakeAmount, 0.0f, Time.deltaTime * (shipAirbrakeFalloff * 2.5f));
+                shipAirbrakeAmount = Mathf.Lerp(shipAirbrakeAmount, 0.0f, Time.deltaTime * (shipAirbrakeFalloff * 2f));
             }
 
 
@@ -659,7 +677,7 @@ public class ShipSimulator : MonoBehaviour {
         // Side Shifting
         if (bIsShipSS)
         {
-            shipBody.AddForce(sideShiftDirection * (settings.airbrakesSideshift * 1.8f), ForceMode.Acceleration);
+            shipBody.AddForce(sideShiftDirection * (settings.airbrakesSideshift * 1.5f), ForceMode.Acceleration);
         }
     }
 
@@ -724,10 +742,13 @@ public class ShipSimulator : MonoBehaviour {
         {
             // Get turning input
             float turningInput = Mathf.Abs(controller.inputSteer);
-            slideGrip -= turningInput * Mathf.Abs(shipTurningAmount * Time.deltaTime);
+            //slideGrip -= turningInput * Mathf.Abs(shipTurningAmount * Time.deltaTime);
             // Get airbrake input
             float airbrakeInput = Mathf.Abs(controller.inputLeftAirbrake + controller.inputRightAirbrake);
-            slideGrip -= airbrakeInput * ((Mathf.Abs(shipAirbrakeAmount * 1.5f) - (settings.airbrakesSlidegrip * Time.deltaTime)) * Time.deltaTime) * settings.airbrakesDrag;
+            //slideGrip -= airbrakeInput * ((Mathf.Abs(shipAirbrakeAmount) - (settings.airbrakesSlidegrip * Time.deltaTime)) * Time.deltaTime) * settings.airbrakesDrag;
+            float absVelX = Mathf.Abs(transform.InverseTransformDirection(shipBody.velocity).x);
+            slideGrip -= Mathf.Abs((shipTurningAmount / 2) * Time.deltaTime);
+            slideGrip -= ((absVelX * Time.deltaTime) * Time.deltaTime) + ((Mathf.Abs(shipAirbrakeAmount* Time.deltaTime) * settings.airbrakesSlidegrip * Time.deltaTime) * settings.airbrakesDrag);
         }
 
         // Airbrake Resistance 
@@ -846,7 +867,7 @@ public class ShipSimulator : MonoBehaviour {
 
             if (controller.inputLeftAirbrake != 0 || controller.inputRightAirbrake != 0)
             {
-                float camSensitivity = 0.07f;
+                float camSensitivity = 0.06f;
                 shipCameraSpring = Mathf.Lerp(shipCameraSpring, camSensitivity, Time.deltaTime * (camHorSpring / 2));
             }
             else
@@ -855,11 +876,14 @@ public class ShipSimulator : MonoBehaviour {
             }
 
             // Set the x offset
-            shipCameraStablizerFree = Mathf.Lerp(shipCameraStablizerFree, Mathf.Abs(camDistance.x) * 4f, Time.deltaTime * (camHorSpring / 2));
+            float turnSensitivity = 1.5f;
+            if (shipCurrentCamra == 1)
+                turnSensitivity = 3.5f;
+            shipCameraStablizerFree = Mathf.Lerp(shipCameraStablizerFree, Mathf.Abs(camDistance.x) * 2.5f, Time.deltaTime * (camHorSpring / 2));
             shipCameraOffsetLag = Mathf.Lerp
                 (
                 shipCameraOffsetLag,
-                (-transform.InverseTransformDirection(shipBody.velocity).x * shipCameraSpring) + (shipTurningAmount * 1.5f),
+                (-transform.InverseTransformDirection(shipBody.velocity).x * shipCameraSpring) + (shipTurningAmount * turnSensitivity),
                 Time.deltaTime * (camHorSpring + (shipCameraStablizerFree))
                 );
 
@@ -873,7 +897,7 @@ public class ShipSimulator : MonoBehaviour {
                 shipCameraHeightLag = Mathf.Lerp
                     (
                     shipCameraHeightLag,
-                    -transform.InverseTransformDirection(shipBody.velocity).y * (0.03f + heightHelper),
+                    -transform.InverseTransformDirection(shipBody.velocity).y * (0.02f + heightHelper),
                     Time.deltaTime * (camVertSpring - (heightHelper * 10))
                     );
             }
@@ -891,7 +915,7 @@ public class ShipSimulator : MonoBehaviour {
             shipCameraChaseLag = Mathf.Lerp
             (
                 shipCameraChaseLag,
-                (transform.InverseTransformDirection(shipBody.velocity).z * Time.deltaTime) * 0.08f,
+                (transform.InverseTransformDirection(shipBody.velocity).z * Time.deltaTime) * 0.25f,
                 Time.deltaTime * 2
             );
 
@@ -913,21 +937,21 @@ public class ShipSimulator : MonoBehaviour {
             // Set the local offset
             Vector3 camLocalOffset = camOffset;
             camLocalOffset.x = shipCameraOffsetLag;
-            camLocalOffset.y = camOffset.y + (shipCameraHeightLag - (transform.InverseTransformDirection(shipBody.velocity).y * Time.deltaTime));
-            camLocalOffset.z = (camOffset.z - shipCameraChaseLag) + (Mathf.Abs(shipCameraOffsetLag) * 0.08f) + shipCameraBoostChase;
+            camLocalOffset.y = camOffset.y + (shipCameraHeightLag - (transform.InverseTransformDirection(shipBody.velocity).y * Time.deltaTime)) - (shipPitchAmount * 0.1f);
+            camLocalOffset.z = (camOffset.z - shipCameraChaseLag) + (Mathf.Abs(shipCameraOffsetLag) * 0.15f) + shipCameraBoostChase;
 
             // Position the camera
             shipCamera.transform.localPosition = camLocalOffset;
 
             // Get camera lookat position
-            float pitchMult = 4f;
+            float pitchMult = GlobalSettings.camPitchModDownMult;
             if (!bShipIsGrounded)
             {
                 pitchMult = 1f;
             }
-            float camPitchMod = ((transform.InverseTransformDirection(shipBody.velocity).y * Time.deltaTime * pitchMult) * GlobalSettings.camPitchModDownOffset) * GlobalSettings.camPitchModDownMult;
+            float camPitchMod = ((transform.InverseTransformDirection(shipBody.velocity).y * Time.deltaTime * pitchMult));
             shipCameraPitchModify = Mathf.Lerp(shipCameraPitchModify, camPitchMod, Time.deltaTime * camVertSpring);
-            Vector3 localLA = transform.TransformPoint(camLA.x, camLA.y - shipCameraPitchModify, camLA.z + shipCameraAccelerationLength + (shipCameraBoostChase * 10));
+            Vector3 localLA = transform.TransformPoint(camLA.x, camLA.y + shipCameraPitchModify + (shipPitchAmount * GlobalSettings.camPitchModDownMult), camLA.z + shipCameraAccelerationLength + (shipCameraBoostChase * 10));
 
             Quaternion LookAt = Quaternion.LookRotation(localLA - shipCamera.transform.position, transform.up);
             shipCamera.transform.rotation = LookAt;
